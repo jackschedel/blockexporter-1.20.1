@@ -1,6 +1,6 @@
 {
   "key.blockexporter.export": "Open Block Exporter",
-  "category.blockexporter": "Block Exporter",
+  "key.category.blockexporter.category": "Block Exporter",
   "screen.blockexporter.title": "Block Exporter",
   "screen.blockexporter.open_folder": "Open Folder"
 } 
