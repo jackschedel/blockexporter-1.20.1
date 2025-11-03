@@ -10,6 +10,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.SimpleFramebuffer;
 import net.minecraft.client.render.*;
+import net.minecraft.client.render.command.OrderedRenderCommandQueue;
+import net.minecraft.client.render.command.RenderDispatcher;
 import net.minecraft.client.render.item.ItemRenderState;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.math.MatrixStack;
@@ -46,7 +48,9 @@ public class ItemRenderer implements AutoCloseable {
     
     private final MatrixStack matrices;
     private final Matrix4f orthoMatrix;
-    private final VertexConsumerProvider.Immediate immediate;
+    private final OrderedRenderCommandQueue renderCommandQueue;
+    private final RenderDispatcher renderDispatcher;
+    private final VertexConsumerProvider.Immediate vertexConsumers;
 
     public ItemRenderer(int textureSize) {
         this.textureSize = textureSize;
@@ -61,7 +65,9 @@ public class ItemRenderer implements AutoCloseable {
 
         this.matrices = new MatrixStack();
         this.orthoMatrix = new Matrix4f().setOrtho(0.0F, this.textureSize, this.textureSize, 0.0F, -1000.0F, 1000.0F);
-        this.immediate = this.client.getBufferBuilders().getEntityVertexConsumers();
+        this.renderCommandQueue = this.client.gameRenderer.getEntityRenderCommandQueue();
+        this.renderDispatcher = this.client.gameRenderer.getEntityRenderDispatcher();
+        this.vertexConsumers = this.client.getBufferBuilders().getEntityVertexConsumers();
 
         try {
             Files.createDirectories(exportDirectory);
@@ -125,10 +131,12 @@ public class ItemRenderer implements AutoCloseable {
                 client.gameRenderer.getDiffuseLighting().setShaderLights(DiffuseLighting.Type.ITEMS_FLAT);
             }
             
-            this.itemRenderState.render(matrices, immediate, 15728880, OverlayTexture.DEFAULT_UV);
-            immediate.draw();
+            this.itemRenderState.render(matrices, renderCommandQueue, 15728880, OverlayTexture.DEFAULT_UV, 0);
             matrices.pop();
-            
+
+            this.renderDispatcher.render();
+            this.vertexConsumers.draw();
+
             takeScreenshotAsync(this.framebuffer, id, stack, completionCounter);
 
         } catch (Exception e) {
