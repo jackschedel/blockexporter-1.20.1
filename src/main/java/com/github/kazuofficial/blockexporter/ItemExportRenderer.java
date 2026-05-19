@@ -62,7 +62,7 @@ public class ItemExportRenderer implements AutoCloseable {
             return;
         }
 
-        Matrix4f ortho = new Matrix4f().setOrtho(0.0F, this.textureSize, this.textureSize, 0.0F, -1000.0F, 1000.0F);
+        Matrix4f ortho = new Matrix4f().setOrtho(0.0F, this.textureSize, 0.0F, this.textureSize, -1000.0F, 1000.0F);
         RenderSystem.setProjectionMatrix(ortho, VertexSorting.ORTHOGRAPHIC_Z);
 
         for (ItemStack stack : stacks) {
