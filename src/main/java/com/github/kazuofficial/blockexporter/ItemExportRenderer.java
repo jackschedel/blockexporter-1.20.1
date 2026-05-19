@@ -93,7 +93,7 @@ public class ItemExportRenderer implements AutoCloseable {
             PoseStack poseStack = new PoseStack();
             poseStack.pushPose();
             poseStack.translate(this.textureSize / 2.0, this.textureSize / 2.0, 100.0);
-            poseStack.scale(this.textureSize, -this.textureSize, this.textureSize);
+            poseStack.scale(this.textureSize, this.textureSize, this.textureSize);
 
             MultiBufferSource.BufferSource bufferSource = client.renderBuffers().bufferSource();
             itemRenderer.render(stack, ItemDisplayContext.GUI, false, poseStack, bufferSource,
