@@ -5,13 +5,19 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.Util;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.material.Fluid;
+import net.minecraft.world.level.material.Fluids;
+import net.minecraftforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.minecraftforge.registries.ForgeRegistries;
+import com.mojang.blaze3d.systems.RenderSystem;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -37,9 +43,12 @@ public class ExportScreen extends Screen {
 
     private final List<Item> allItems;
     private List<Item> itemsToExport;
+    private final List<Fluid> allFluids;
+    private List<Fluid> fluidsToExport;
     private boolean finishedWithErrors = false;
     private int failedItemCount = 0;
     private int currentItemIndex = 0;
+    private int currentFluidIndex = 0;
     private final AtomicInteger completedItems = new AtomicInteger(0);
     private boolean isExporting = false;
     private Button startCancelButton;
@@ -55,6 +64,10 @@ public class ExportScreen extends Screen {
         this.allItems = new ArrayList<>(ForgeRegistries.ITEMS.getValues().stream()
             .filter(item -> item != Items.AIR).toList());
         this.itemsToExport = new ArrayList<>(this.allItems);
+        this.allFluids = new ArrayList<>(ForgeRegistries.FLUIDS.getValues().stream()
+            .filter(fluid -> fluid != Fluids.EMPTY)
+            .filter(fluid -> fluid.isSource(fluid.defaultFluidState())).toList());
+        this.fluidsToExport = new ArrayList<>(this.allFluids);
     }
 
     @Override
@@ -106,15 +119,17 @@ public class ExportScreen extends Screen {
                     this.finishedWithErrors = false;
                     this.failedItemCount = 0;
                     this.itemsToExport = new ArrayList<>(this.allItems);
+                    this.fluidsToExport = new ArrayList<>(this.allFluids);
 
                     if (this.itemRenderer != null) {
                         this.itemRenderer.close();
                     }
                     this.itemRenderer = new ItemExportRenderer(this.exportSize);
                     this.currentItemIndex = 0;
+                    this.currentFluidIndex = 0;
                     this.completedItems.set(0);
-                    BlockExporter.LOGGER.info("Starting fast batch export of {} items with batch size {}",
-                        itemsToExport.size(), BATCH_SIZE);
+                    BlockExporter.LOGGER.info("Starting fast batch export of {} items and {} fluids with batch size {}",
+                        itemsToExport.size(), fluidsToExport.size(), BATCH_SIZE);
                     this.updateButtonStates();
                 }
             })
@@ -167,36 +182,67 @@ public class ExportScreen extends Screen {
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, panelY + PANEL_PADDING, ACCENT_COLOR);
 
         int itemSectionY = panelY + PANEL_PADDING + 25;
-        int displayIndex = Math.min(currentItemIndex, itemsToExport.size() - 1);
-        if (displayIndex >= 0 && displayIndex < itemsToExport.size()) {
-            ItemStack stack = new ItemStack(itemsToExport.get(displayIndex));
+        int itemFrameSize = ITEM_SIZE + 8;
+        int itemFrameX = (this.width - itemFrameSize) / 2;
+        int itemFrameY = itemSectionY;
+        int itemX = itemFrameX + 4;
+        int itemY = itemFrameY + 4;
 
-            int itemFrameSize = ITEM_SIZE + 8;
-            int itemFrameX = (this.width - itemFrameSize) / 2;
-            int itemFrameY = itemSectionY;
+        boolean showFluid = currentItemIndex >= itemsToExport.size() && !fluidsToExport.isEmpty();
+
+        if (showFluid) {
+            int displayIndex = Math.min(currentFluidIndex, fluidsToExport.size() - 1);
+            Fluid fluid = fluidsToExport.get(displayIndex);
 
             guiGraphics.fill(itemFrameX - 1, itemFrameY - 1, itemFrameX + itemFrameSize + 1, itemFrameY + itemFrameSize + 1, ITEM_FRAME_COLOR);
             guiGraphics.fill(itemFrameX, itemFrameY, itemFrameX + itemFrameSize, itemFrameY + itemFrameSize, 0xFF1E1E1E);
 
-            int itemX = itemFrameX + 4;
-            int itemY = itemFrameY + 4;
-
-            guiGraphics.pose().pushPose();
-            guiGraphics.pose().translate(itemX + ITEM_SIZE / 2f, itemY + ITEM_SIZE / 2f, 0);
-            guiGraphics.pose().scale(3.0f, 3.0f, 1.0f);
-            guiGraphics.pose().translate(-8, -8, 0);
-            guiGraphics.renderItem(stack, 0, 0);
-            guiGraphics.pose().popPose();
-
-            String itemName = stack.getHoverName().getString();
-            if (itemName.length() > 25) {
-                itemName = itemName.substring(0, 22) + "...";
+            IClientFluidTypeExtensions fluidExtensions = IClientFluidTypeExtensions.of(fluid);
+            TextureAtlasSprite sprite = Minecraft.getInstance()
+                .getTextureAtlas(InventoryMenu.BLOCK_ATLAS).apply(fluidExtensions.getStillTexture());
+            int tintColor = fluidExtensions.getTintColor();
+            float r = ((tintColor >> 16) & 0xFF) / 255f;
+            float g = ((tintColor >> 8) & 0xFF) / 255f;
+            float b = (tintColor & 0xFF) / 255f;
+            float a = ((tintColor >> 24) & 0xFF) / 255f;
+            if (a == 0f) {
+                a = 1f;
             }
-            guiGraphics.drawCenteredString(this.font, Component.literal(itemName),
-                this.width / 2, itemSectionY + itemFrameSize + 8, 0xFFFFFF);
+            RenderSystem.setShaderColor(r, g, b, a);
+            guiGraphics.blit(itemX, itemY, 0, ITEM_SIZE, ITEM_SIZE, sprite);
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
-            if (mouseX >= itemX && mouseX < itemX + ITEM_SIZE && mouseY >= itemY && mouseY < itemY + ITEM_SIZE) {
-                guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
+            String fluidName = fluid.getFluidType().getDescription().getString();
+            if (fluidName.length() > 25) {
+                fluidName = fluidName.substring(0, 22) + "...";
+            }
+            guiGraphics.drawCenteredString(this.font, Component.literal(fluidName),
+                this.width / 2, itemSectionY + itemFrameSize + 8, 0xFFFFFF);
+        } else {
+            int displayIndex = Math.min(currentItemIndex, itemsToExport.size() - 1);
+            if (displayIndex >= 0 && displayIndex < itemsToExport.size()) {
+                ItemStack stack = new ItemStack(itemsToExport.get(displayIndex));
+
+                guiGraphics.fill(itemFrameX - 1, itemFrameY - 1, itemFrameX + itemFrameSize + 1, itemFrameY + itemFrameSize + 1, ITEM_FRAME_COLOR);
+                guiGraphics.fill(itemFrameX, itemFrameY, itemFrameX + itemFrameSize, itemFrameY + itemFrameSize, 0xFF1E1E1E);
+
+                guiGraphics.pose().pushPose();
+                guiGraphics.pose().translate(itemX + ITEM_SIZE / 2f, itemY + ITEM_SIZE / 2f, 0);
+                guiGraphics.pose().scale(3.0f, 3.0f, 1.0f);
+                guiGraphics.pose().translate(-8, -8, 0);
+                guiGraphics.renderItem(stack, 0, 0);
+                guiGraphics.pose().popPose();
+
+                String itemName = stack.getHoverName().getString();
+                if (itemName.length() > 25) {
+                    itemName = itemName.substring(0, 22) + "...";
+                }
+                guiGraphics.drawCenteredString(this.font, Component.literal(itemName),
+                    this.width / 2, itemSectionY + itemFrameSize + 8, 0xFFFFFF);
+
+                if (mouseX >= itemX && mouseX < itemX + ITEM_SIZE && mouseY >= itemY && mouseY < itemY + ITEM_SIZE) {
+                    guiGraphics.renderTooltip(this.font, stack, mouseX, mouseY);
+                }
             }
         }
 
@@ -208,18 +254,20 @@ public class ExportScreen extends Screen {
         guiGraphics.fill(progressX - 1, progressY - 1, progressX + PROGRESS_BAR_WIDTH + 1, progressY + PROGRESS_BAR_HEIGHT + 1, PROGRESS_BORDER);
         guiGraphics.fill(progressX, progressY, progressX + PROGRESS_BAR_WIDTH, progressY + PROGRESS_BAR_HEIGHT, PROGRESS_BACKGROUND);
 
-        boolean isComplete = currentItemIndex >= itemsToExport.size() && !isExporting;
+        int totalToExport = itemsToExport.size() + fluidsToExport.size();
+        boolean isComplete = currentItemIndex >= itemsToExport.size()
+            && currentFluidIndex >= fluidsToExport.size() && !isExporting;
 
-        int completed = isComplete ? itemsToExport.size() - failedItemCount : completedItems.get();
-        float progress = itemsToExport.isEmpty() ? 0 : (float) completed / itemsToExport.size();
+        int completed = isComplete ? totalToExport - failedItemCount : completedItems.get();
+        float progress = totalToExport == 0 ? 0 : (float) completed / totalToExport;
         int progressWidth = (int) (PROGRESS_BAR_WIDTH * progress);
         if (progressWidth > 0) {
             guiGraphics.fill(progressX, progressY, progressX + progressWidth, progressY + PROGRESS_BAR_HEIGHT, PROGRESS_FILL);
             guiGraphics.fill(progressX, progressY, progressX + progressWidth, progressY + 2, 0xFF4CAF50);
         }
 
-        String progressText = String.format("%d / %d items (%.1f%%)",
-            completed, itemsToExport.size(), progress * 100);
+        String progressText = String.format("%d / %d entries (%.1f%%)",
+            completed, totalToExport, progress * 100);
         guiGraphics.drawCenteredString(this.font, progressText,
             this.width / 2, progressY + PROGRESS_BAR_HEIGHT + 8, 0xFFFFFF);
 
@@ -235,6 +283,7 @@ public class ExportScreen extends Screen {
     public void tick() {
         super.tick();
         if (isExporting) {
+            int totalToExport = itemsToExport.size() + fluidsToExport.size();
             if (currentItemIndex < itemsToExport.size()) {
                 List<ItemStack> batch = new ArrayList<>();
                 int batchEnd = Math.min(currentItemIndex + BATCH_SIZE, itemsToExport.size());
@@ -249,19 +298,35 @@ public class ExportScreen extends Screen {
 
                 currentItemIndex = batchEnd;
 
-            } else if (completedItems.get() >= itemsToExport.size()) {
+            } else if (currentFluidIndex < fluidsToExport.size()) {
+                List<Fluid> batch = new ArrayList<>();
+                int batchEnd = Math.min(currentFluidIndex + BATCH_SIZE, fluidsToExport.size());
+
+                for (int i = currentFluidIndex; i < batchEnd; i++) {
+                    batch.add(fluidsToExport.get(i));
+                }
+
+                if (itemRenderer != null && !batch.isEmpty()) {
+                    itemRenderer.exportFluidsBatch(batch, completedItems);
+                }
+
+                currentFluidIndex = batchEnd;
+
+            } else if (completedItems.get() >= totalToExport) {
                 isExporting = false;
                 if (itemRenderer != null) {
-                    List<ItemStack> currentFailedItems = itemRenderer.getFailedExports();
-                    if (!currentFailedItems.isEmpty()) {
+                    int failedCount = itemRenderer.getFailedExports().size()
+                        + itemRenderer.getFailedFluidExports().size();
+                    if (failedCount > 0) {
                         this.finishedWithErrors = true;
-                        this.failedItemCount = currentFailedItems.size();
+                        this.failedItemCount = failedCount;
                     }
                 }
                 updateButtonStates();
 
                 if (!this.finishedWithErrors) {
-                    BlockExporter.LOGGER.info("Fast batch export completed! Exported {} items", itemsToExport.size());
+                    BlockExporter.LOGGER.info("Fast batch export completed! Exported {} items and {} fluids",
+                        itemsToExport.size(), fluidsToExport.size());
                 } else {
                     BlockExporter.LOGGER.warn("Export finished with {} failures.", this.failedItemCount);
                 }
